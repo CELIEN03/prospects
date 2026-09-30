@@ -12,6 +12,7 @@ from collections import Counter
 BASE = "/tmp/claude-0/-home-user-prospects/b7675362-c672-5335-bd2c-4d9d4f063fef/scratchpad"
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE, "out")
 TARGET_TOTAL = 5000
+TOUT = os.environ.get("TOUT") == "1"
 os.makedirs(OUT, exist_ok=True)
 
 def norm(s):
@@ -103,28 +104,33 @@ for m in people:
         "employees": o.get("estimated_num_employees") or "", "industry": o.get("industry") or "", "org_id": o.get("id") or m.get("organization_id") or "",
     }
     def reject(why):
+        # mode TOUT : seuls Canada et doublons d'email sont retirés, le reste est gardé
+        if TOUT and why not in ("canada", "doublon_email"):
+            stats[f"{seg}_garde_malgre_{why}"] += 1
+            return False
         stats[f"{seg}_retire_{why}"] += 1; rej.append({**row, "raison": why})
+        return True
     if "canada" in country or "quebec" in norm(m.get("state")):
-        reject("canada"); continue
+        if reject("canada"): continue
     if country == "switzerland":
         if not (norm(m.get("state")) in ROMANDE_CANTONS or any(c in city for c in ROMANDE)):
-            reject("suisse_hors_romandie"); continue
+            if reject("suisse_hors_romandie"): continue
     elif country not in OK_COUNTRIES:
-        reject("hors_zone"); continue
+        if reject("hors_zone"): continue
     ind = (o.get("industry") or "").strip().lower()
     if ind and ind not in INDUSTRY_OK[seg]:
-        reject("secteur_hors_cible"); continue
+        if reject("secteur_hors_cible"): continue
     if ORG_KO.search(norm(o.get("name"))) or DOMAIN_KO.search(dom):
-        reject("verticale_brulee"); continue
+        if reject("verticale_brulee"): continue
     if re.search(r"(marketing|contact|info|admin|team|sales|support|hello|direction)", norm(row["first_name"])) or not row["first_name"]:
-        reject("prenom_invalide"); continue
+        if reject("prenom_invalide"): continue
     if not email or row["email_status"] != "verified":
         stats[f"{seg}_sans_email_verifie"] += 1; repechage[seg].append(row); continue
     okey = row["org_id"] or norm(row["company_name"])
     if okey in orgs:
-        reject("doublon_entreprise"); continue
+        if reject("doublon_entreprise"): continue
     if email in emails:
-        reject("doublon_email"); continue
+        if reject("doublon_email"): continue
     orgs.add(okey); emails.add(email)
     keep[seg].append(row)
 
